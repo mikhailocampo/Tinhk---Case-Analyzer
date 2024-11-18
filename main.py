@@ -32,6 +32,7 @@ app = modal.App(
     image=image,
     secrets= [
         modal.Secret.from_name("openai"),
+        modal.Secret.from_name("postgres-secret")
     ]
 )
 

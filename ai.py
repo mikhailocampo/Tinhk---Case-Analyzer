@@ -1,4 +1,5 @@
 import os
+import json
 from openai import OpenAI
 from typing import List
 from loguru import logger
@@ -38,6 +39,7 @@ def format_messages(
 
 
 def call_openai_structured(client: OpenAI, messages: List[dict]) -> CaseAnalysisSchema:
+    logger.debug(f"Starting OpenAI Structured Call")
     response = client.beta.chat.completions.parse(
         model="gpt-4o-2024-08-06",
         messages=messages,
@@ -70,16 +72,21 @@ def store_case_analysis(
         )
         RETURNING id
     """)
-    # Convert case analysis to a dict format
+    
+    # Convert Python objects to JSON strings first, which PostgreSQL will then cast to JSONB
     params = {
         "title": title,
-        "images": image_urls,
+        "images": json.dumps(image_urls),
         "summary": case_analysis.summary,
-        "keypoints": case_analysis.key_points,
-        "translations": case_analysis.translations,
+        "keypoints": json.dumps(case_analysis.key_points),
+        "translations": json.dumps([translation.model_dump() for translation in case_analysis.translations]),
         "created_at": date.today().isoformat()
     }
-    db_url = "postgresql://retool:ClBAzE3tx1LH@ep-restless-butterfly-a65877e9.us-west-2.retooldb.com/retool?sslmode=require"
+    db_url = os.getenv("PGSQL_URL")
     with create_engine(db_url).connect() as connection:
-        result = connection.execute(query, params)
-        return result.fetchone()[0]
+        with connection.begin():
+            logger.info(f"Storing generated case analysis: {title}")
+            result = connection.execute(query, params)
+            case_id = result.fetchone()[0]
+            logger.success(f"Successfully stored case analysis with ID: {case_id}")
+            return case_id
