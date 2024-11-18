@@ -32,7 +32,8 @@ app = modal.App(
     image=image,
     secrets= [
         modal.Secret.from_name("openai"),
-        modal.Secret.from_name("postgres-secret")
+        modal.Secret.from_name("postgres-secret"),
+        modal.Secret.from_name("tinhk-aws-s3")
     ]
 )
 
@@ -63,12 +64,34 @@ async def analyze_case(
         if not isinstance(url, str) or not url.strip():
             raise HTTPException(status_code=400, detail="Invalid screenshot URL provided")
     
-    client = get_openai_client()
-    messages = format_messages(
-        system_prompt=SYSTEM_PROMPT(config),
-        user_prompt=f"Case title: {case_title}\nAdditional context: {additional_context}",
-        image_urls=screenshot_urls
-    )
+    try:
+        client = get_openai_client()
+        messages = format_messages(
+            system_prompt=SYSTEM_PROMPT(config),
+            user_prompt=f"Case title: {case_title}\nAdditional context: {additional_context}",
+            image_urls=screenshot_urls
+        )
+        
+        if not messages[1]["content"] or len(messages[1]["content"]) <= 1:  # Only has text content
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to process images: {str(e)}. Please ensure all images are in supported formats (PNG, JPEG, GIF, or WEBP)"
+            )
+            
+    except ValueError as e:
+        logger.error(f"Image processing error: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to process images: {str(e)}. Please ensure all images are in supported formats (PNG, JPEG, GIF, or WEBP)"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during message formatting: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while processing the images"
+        )
+    
+    logger.debug(f"Messages: {messages}")
     
     try:
         case_analysis = call_openai_structured(client, messages)
