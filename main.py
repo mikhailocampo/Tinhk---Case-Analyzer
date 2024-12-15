@@ -37,7 +37,7 @@ app = modal.App(
     ]
 )
 
-@app.function(keep_warm=1, timeout=3600)
+@app.function(timeout=3600)
 @modal.asgi_app()
 def fastapi_app():
     logger.success("Started FastAPI")
@@ -66,7 +66,7 @@ async def analyze_case(
     
     try:
         client = get_openai_client()
-        messages = format_messages(
+        messages, permanent_urls = await format_messages( 
             system_prompt=SYSTEM_PROMPT(config),
             user_prompt=f"Case title: {case_title}\nAdditional context: {additional_context}",
             image_urls=screenshot_urls
@@ -75,7 +75,7 @@ async def analyze_case(
         if not messages[1]["content"] or len(messages[1]["content"]) <= 1:  # Only has text content
             raise HTTPException(
                 status_code=400,
-                detail=f"Failed to process images: {str(e)}. Please ensure all images are in supported formats (PNG, JPEG, GIF, or WEBP)"
+                detail="Failed to process images. Please ensure all images are in supported formats (PNG, JPEG)"
             )
             
     except ValueError as e:
@@ -96,12 +96,12 @@ async def analyze_case(
     try:
         case_analysis = call_openai_structured(client, messages)
         try:
-            case_id = store_case_analysis(case_title, screenshot_urls, case_analysis)
-            return {"case_id": case_id, "analysis": case_analysis}
+            case_id = store_case_analysis(case_title, permanent_urls, case_analysis)
+            return {"case_id": case_id, "title": case_title, "analysis": case_analysis}
         except Exception as e:
             logger.error(f"Error storing case analysis: {e}")
             # Return analysis even if storage failed
-            return {"case_id": None, "analysis": case_analysis}
+            return {"case_id": None, "title": case_title, "analysis": case_analysis}
     except Exception as e:
         logger.error(f"Error analyzing case: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while analyzing the case")
